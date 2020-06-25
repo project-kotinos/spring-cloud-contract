@@ -16,6 +16,7 @@
 
 package contracts;
 
+import java.lang.reflect.Field;
 import java.time.Duration;
 
 import io.restassured.RestAssured;
@@ -24,13 +25,21 @@ import org.junit.runner.RunWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.cloud.contract.verifier.messaging.boot.AutoConfigureMessageVerifier;
+import org.springframework.cloud.stream.binder.Binder;
+import org.springframework.cloud.stream.binder.DefaultBinderFactory;
+import org.springframework.cloud.stream.binder.ExtendedConsumerProperties;
+import org.springframework.cloud.stream.provisioning.ConsumerDestination;
+import org.springframework.cloud.stream.provisioning.ProvisioningProvider;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.test.context.junit4.SpringRunner;
+import org.springframework.util.ReflectionUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 
@@ -53,6 +62,9 @@ public abstract class RestBase {
 	@Value("${APPLICATION_PASSWORD:}")
 	String password;
 
+	@Autowired
+	ApplicationContext applicationContext;
+
 	@Before
 	public void setup() {
 		RestAssured.baseURI = this.url;
@@ -62,9 +74,61 @@ public abstract class RestBase {
 	}
 
 	public void triggerMessage(String label) {
+		triggerMessage(label, "");
+	}
+
+	public void triggerMessage(String label, String queueName) {
+		triggerMessage(label, queueName, queueName);
+	}
+
+	public void triggerMessage(String label, String groupName, String queueName) {
+		if (StringUtils.hasText(queueName)) {
+			provisionQueue(groupName, queueName);
+		}
 		String url = this.url + "/springcloudcontract/" + label;
 		log.info("Will send a request to [{}] in order to trigger a message", url);
 		restTemplate().postForObject(url, "", String.class);
+	}
+
+	private void provisionQueue(String groupName, String queue) {
+		DefaultBinderFactory binderFactory = applicationContext.getBean("binderFactory", DefaultBinderFactory.class);
+		String binderName = binderName();
+		Binder binder = binderFactory.getBinder(binderName, Binder.class);
+		Field f = ReflectionUtils.findField(binder.getClass(), "provisioningProvider");
+		f.setAccessible(true);
+		try {
+			ProvisioningProvider provisioner = (ProvisioningProvider) f.get(binder);
+			ConsumerDestination consumerDestination = provisioner.provisionConsumerDestination(queue, groupName, new ExtendedConsumerProperties(consumerProperties(binderName)));
+			log.info("Provisioned a following consumer destination [{}]", consumerDestination);
+		}
+		catch (IllegalAccessException e) {
+			throw new IllegalStateException(e);
+		}
+	}
+
+	private String binderName() {
+		String messagingType = System.getProperty("VERIFIER_MESSAGING_TYPE");
+		if (StringUtils.hasText(messagingType)) {
+			return messagingType;
+		}
+		messagingType = System.getenv("VERIFIER_MESSAGING_TYPE");
+		return StringUtils.hasText(messagingType) ? messagingType : "rabbit";
+	}
+
+	private Object consumerProperties(String binderName) {
+		try {
+			Class clazz;
+			if ("kafka".equals(binderName)) {
+				clazz = Class.forName("org.springframework.cloud.stream.binder.kafka.properties.KafkaConsumerProperties");
+			}
+			else {
+				clazz = Class.forName("org.springframework.cloud.stream.binder.rabbit.properties.RabbitConsumerProperties");
+			}
+			return clazz.getDeclaredConstructor().newInstance();
+		}
+		catch (Exception e) {
+			throw new IllegalStateException(e);
+		}
 	}
 
 	private RestTemplate restTemplate() {
