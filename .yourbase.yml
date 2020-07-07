@@ -1,6 +1,9 @@
 build_targets:
 - commands:
   - ./scripts/downloadDependencies.sh
+  - rm -rf ~/.m2/repository/org/springframework/cloud/contract
+  - rm -rf ~/.m2/repository/com/example
+  - ./scripts/ciBuild.sh
   container:
     image: yourbase/yb_ubuntu:18.04
   name: default
