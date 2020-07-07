@@ -5,7 +5,7 @@ build_targets:
     image: yourbase/yb_ubuntu:18.04
   name: default
   environment:
-      - GRADLE_OPTS='-Dorg.gradle.jvmargs="-Xms64m -Xmx250m -XX:+HeapDumpOnOutOfMemoryError" -Dorg.gradle.daemon=false'
+      - GRADLE_OPTS='-Dorg.gradle.jvmargs="-XX:+HeapDumpOnOutOfMemoryError" -Dorg.gradle.daemon=false'
       - TERM=dumb
 
 ci:
